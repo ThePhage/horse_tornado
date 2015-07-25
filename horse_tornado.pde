@@ -12,22 +12,53 @@ import processing.core.*;
 import java.util.*;
 
 // Essentials
-final float pi = (float)Math.PI;
+final float pi = (float)PI;
 
 DeviceRegistry registry;
 TestObserver observer;
-
-// Background image.  Assumed horizontally periodic, and extended for sentinel purposes.
-PImage back; // Might be a movie
-Map<Integer,PImage> extended = new HashMap<Integer,PImage>(); // Extended for sentinel purposes, resized horizontally
+SDrop drop;
 
 // Parameters and state
-final String source = "withcharm.jpg";
 final float rotate_time = 2; // seconds
 final float strip_angle = 2*pi/50; // horizontal box filter width of each strip
+final float image_time = 2; // seconds
 float time = 0;
 
+// Background image.  Assumed horizontally periodic, and extended for sentinel purposes.
+final Queue<String> back_paths = new ArrayDeque(); // All available background images
+PImage back; // Might be a movie
+
+float back_end_time = 0;
+Map<Integer,PImage> extended = new HashMap<Integer,PImage>(); // Extended for sentinel purposes, resized horizontally
+
+// Load a background image or movie
+void load(final String path) {
+  if (path.endsWith(".jpg") || path.endsWith(".png")) {
+    println("Loading image: "+path);
+    back = loadImage(path);
+    while (back.width > 1024 || back.height > 1024)
+      back.resize(back.width/2,back.height/2);
+    back_end_time = time + image_time;
+  } else {
+    println("Loading video: "+path);
+    final Movie m = new Movie(this,path);
+    println("  duration = "+m.duration());
+    m.play();
+    back = m;
+    back_end_time = time + m.duration();
+  }
+  size(200,100);
+  extended.clear();
+}
+
+void load_next() {
+  final String path = back_paths.poll();
+  load(path);
+  back_paths.add(path);
+}
+
 void setup() {
+  drop = new SDrop(this);
   registry = new DeviceRegistry();
   observer = new TestObserver();
   registry.addObserver(observer);
@@ -35,17 +66,17 @@ void setup() {
   registry.setFrameLimit(1000);
   frameRate(1000);
 
-  // Load the background image or movie
-  if (source.endsWith(".jpg") || source.endsWith(".png")) {
-    back = loadImage(source);
-    while (back.width > 1024 || back.height > 1024)
-      back.resize(back.width/2,back.height/2);
-  } else {
-    final Movie m = new Movie(this,source);
-    m.loop();
-    back = m;
-  }   
-  size(back.width,back.height);
+  // Find all available sources
+  List<String> paths = new ArrayList<String>();
+  for (final File file : new File(dataPath("")).listFiles())
+    paths.add(file.getPath());
+  Collections.sort(paths);
+  for (final String path : paths)
+    println("Scanning source: "+path);
+  back_paths.addAll(paths);
+
+  // Load the first source
+  load_next();
 }
 
 // Extend an image to the right via wraparound to simplify drawStrip
@@ -74,7 +105,7 @@ void drawStrip(final Strip strip, final float angle) {
               dx = strip_angle/(2*pi)*back.width,
               xhi = xlo + dx,
               inv_dx = 1/dx;
-              
+
   // Draw each LED
   for (int y=0;y<ny;y++) {
     float r = 0, g = 0, b = 0;
@@ -92,10 +123,12 @@ void drawStrip(final Strip strip, final float angle) {
 void draw() {
   // Advance time
   time += 1./frameRate;
+  if (time > back_end_time)
+    load_next();
 
   // Draw on laptop screen
-  image(back,0,0);
-  
+  image(back,0,0,width,height);
+
   // Draw on LEDs
   if (observer.hasStrips) {
     registry.startPushing();
