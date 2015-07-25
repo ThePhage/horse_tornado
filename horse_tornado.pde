@@ -7,6 +7,7 @@ import javax.swing.*;
 import com.heroicrobot.dropbit.registry.*;
 import com.heroicrobot.dropbit.devices.pixelpusher.Pixel;
 import com.heroicrobot.dropbit.devices.pixelpusher.Strip;
+import processing.video.*;
 import processing.core.*;
 import java.util.*;
 
@@ -17,10 +18,11 @@ DeviceRegistry registry;
 TestObserver observer;
 
 // Background image.  Assumed horizontally periodic, and extended for sentinel purposes.
-PImage back;
+PImage back; // Might be a movie
 Map<Integer,PImage> extended = new HashMap<Integer,PImage>(); // Extended for sentinel purposes, resized horizontally
 
 // Parameters and state
+final String source = "withcharm.jpg";
 final float rotate_time = 2; // seconds
 final float strip_angle = 2*pi/50; // horizontal box filter width of each strip
 float time = 0;
@@ -33,10 +35,16 @@ void setup() {
   registry.setFrameLimit(1000);
   frameRate(1000);
 
-  // Load the background image
-  back = loadImage("withcharm.jpg");
-  while (back.width > 1024 || back.height > 1024)
-    back.resize(back.width/2,back.height/2);
+  // Load the background image or movie
+  if (source.endsWith(".jpg") || source.endsWith(".png")) {
+    back = loadImage(source);
+    while (back.width > 1024 || back.height > 1024)
+      back.resize(back.width/2,back.height/2);
+  } else {
+    final Movie m = new Movie(this,source);
+    m.loop();
+    back = m;
+  }   
   size(back.width,back.height);
 }
 
@@ -98,4 +106,10 @@ void draw() {
       drawStrip(strips.get(s),angle);
     }
   }
+}
+
+void movieEvent(Movie m) {
+  // Advance to the next movie frame
+  m.read();
+  extended.clear();
 }
