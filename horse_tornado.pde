@@ -16,12 +16,11 @@ final float pi = (float)PI;
 
 DeviceRegistry registry;
 TestObserver observer;
-SDrop drop;
 
 // Parameters and state
-final float rotate_time = 2; // seconds
+final float rotate_time = 1.; // seconds
 final float strip_angle = 2*pi/50; // horizontal box filter width of each strip
-final float image_time = 2; // seconds
+final float image_time = 60; // seconds
 float time = 0;
 
 // Background image.  Assumed horizontally periodic, and extended for sentinel purposes.
@@ -33,6 +32,7 @@ Map<Integer,PImage> extended = new HashMap<Integer,PImage>(); // Extended for se
 
 // Load a background image or movie
 void load(final String path) {
+  println("Loading: "+path);
   if (path.endsWith(".jpg") || path.endsWith(".png")) {
     println("Loading image: "+path);
     back = loadImage(path);
@@ -43,11 +43,12 @@ void load(final String path) {
     println("Loading video: "+path);
     final Movie m = new Movie(this,path);
     println("  duration = "+m.duration());
-    m.play();
+    m.loop();
     back = m;
     back_end_time = time + m.duration();
   }
   size(200,100);
+  image(back,0,0,width,height);
   extended.clear();
 }
 
@@ -58,7 +59,6 @@ void load_next() {
 }
 
 void setup() {
-  drop = new SDrop(this);
   registry = new DeviceRegistry();
   observer = new TestObserver();
   registry.addObserver(observer);
@@ -89,7 +89,7 @@ PImage extend(final PImage in, final int height) {
   return out;
 }
 
-void drawStrip(final Strip strip, final float angle) {
+void drawStrip(final int s, final Strip strip, final float angle) {
   // Grab a height resized image
   final int ny = strip.getLength();
   final PImage im;
@@ -105,6 +105,8 @@ void drawStrip(final Strip strip, final float angle) {
               dx = strip_angle/(2*pi)*back.width,
               xhi = xlo + dx,
               inv_dx = 1/dx;
+  if (false && s == 0)
+    println("fraction = "+xlo/back.width);
 
   // Draw each LED
   for (int y=0;y<ny;y++) {
@@ -123,11 +125,11 @@ void drawStrip(final Strip strip, final float angle) {
 void draw() {
   // Advance time
   time += 1./frameRate;
-  if (time > back_end_time)
+  if (false && time > back_end_time)
     load_next();
 
   // Draw on laptop screen
-  image(back,0,0,width,height);
+  //image(back,0,0,width,height);
 
   // Draw on LEDs
   if (observer.hasStrips) {
@@ -136,7 +138,7 @@ void draw() {
     final int ns = strips.size();
     for (int s=0;s<ns;s++) {
       final float angle = 2*pi*time/rotate_time + 2*pi/ns*s;
-      drawStrip(strips.get(s),angle);
+      drawStrip(s,strips.get(s),angle);
     }
   }
 }
