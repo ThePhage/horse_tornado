@@ -18,8 +18,8 @@ DeviceRegistry registry;
 TestObserver observer;
 
 // Parameters and state
-final float rotate_time = 1.; // seconds
-final float strip_angle = 2*pi/50; // horizontal box filter width of each strip
+final float rotate_time = 1./8; // seconds
+final float strip_angle = 2*pi/200; // horizontal box filter width of each strip
 final float image_time = 60; // seconds
 float time = 0;
 
@@ -118,7 +118,7 @@ void drawStrip(final int s, final Strip strip, final float angle) {
       g += w*green(c);
       b += w*blue(c);
     }
-    strip.setPixel(color(inv_dx*r,inv_dx*g,inv_dx*b),y);
+    strip.setPixel(color(inv_dx*r,inv_dx*g,inv_dx*b),ny-y-1);
   }
 }
 
