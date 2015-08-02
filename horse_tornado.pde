@@ -21,6 +21,7 @@ TestObserver observer;
 final float rotate_time = 1./8; // seconds
 final float strip_angle = 2*pi/200; // horizontal box filter width of each strip
 final float image_time = 60; // seconds
+final boolean timing = false;
 float time = 0;
 
 // Background image.  Assumed horizontally periodic, and extended for sentinel purposes.
@@ -123,6 +124,8 @@ void drawStrip(final int s, final Strip strip, final float angle) {
 }
 
 void draw() {
+  final double start = timing ? System.nanoTime() : 0;
+
   // Advance time
   time += 1./frameRate;
   if (false && time > back_end_time)
@@ -132,14 +135,24 @@ void draw() {
   //image(back,0,0,width,height);
 
   // Draw on LEDs
+  double pushed = 0;
   if (observer.hasStrips) {
     registry.startPushing();
     final List<Strip> strips = registry.getStrips();
     final int ns = strips.size();
     for (int s=0;s<ns;s++) {
+      final Strip st = strips.get(s);
+      final double p = timing ? st.getPushedAt() : 0;
+      if (p != 0) pushed = p;
       final float angle = 2*pi*time/rotate_time + 2*pi/ns*s;
-      drawStrip(s,strips.get(s),angle);
+      drawStrip(s,st,angle);
     }
+  }
+
+  if (timing && pushed != 0) {
+    final double end = System.nanoTime();
+    println("end-start = "+(end-start)+", end - pushed = "+(end-pushed));
+    //println("  start "+start+", end "+end+", pushed "+pushed);
   }
 }
 
