@@ -18,7 +18,7 @@ DeviceRegistry registry;
 TestObserver observer;
 
 // Parameters and state
-final float rotate_time = 1./8; // seconds
+final float rotate_time = 0.5/8; // seconds
 final float strip_angle = 2*pi/200; // horizontal box filter width of each strip
 final float image_time = 60; // seconds
 final boolean timing = false;
@@ -69,8 +69,11 @@ void setup() {
 
   // Find all available sources
   List<String> paths = new ArrayList<String>();
-  for (final File file : new File(dataPath("")).listFiles())
-    paths.add(file.getPath());
+  for (final File file : new File(dataPath("")).listFiles()) {
+    final String path = file.getPath();
+    if (!path.contains(".DS_Store"))
+      paths.add(path);
+  }
   Collections.sort(paths);
   for (final String path : paths)
     println("Scanning source: "+path);
