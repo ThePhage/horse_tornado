@@ -18,11 +18,12 @@ DeviceRegistry registry;
 TestObserver observer;
 
 // Parameters and state
-final boolean change_images = false; // If true, cycle through all images in the data directory
-final boolean refresh_screen = false; // If true, redraw screen image each frame
-final float rotate_time = 1./8; // seconds
+final float rotate_time = 0.5/8; // seconds
 final float strip_angle = 2*pi/200; // Horizontal box filter width of each strip
 final float image_time = 60; // seconds
+final boolean timing = false;
+final boolean change_images = false; // If true, cycle through all images in the data directory
+final boolean refresh_screen = false; // If true, redraw screen image each frame
 float time = 0;
 
 // Background image.  Assumed horizontally periodic, and extended for sentinel purposes.
@@ -73,8 +74,11 @@ void setup() {
 
   // Find all available sources
   List<String> paths = new ArrayList<String>();
-  for (final File file : new File(dataPath("")).listFiles())
-    paths.add(file.getPath());
+  for (final File file : new File(dataPath("")).listFiles()) {
+    final String path = file.getPath();
+    if (!path.contains(".DS_Store"))
+      paths.add(path);
+  }
   Collections.sort(paths);
   for (final String path : paths)
     println("Scanning source: "+path);
@@ -128,7 +132,9 @@ void drawStrip(final int s, final Strip strip, final float angle) {
 }
 
 void draw() {
-  // Advance time.
+  final double start = timing ? System.nanoTime() : 0;
+
+  // Advance time
   time += 1./frameRate;
   if (change_images && time > back_end_time)
     load_next();
@@ -138,14 +144,24 @@ void draw() {
     image(back,0,0,width,height);
 
   // Draw on LEDs
+  double pushed = 0;
   if (observer.hasStrips) {
     registry.startPushing();
     final List<Strip> strips = registry.getStrips();
     final int ns = strips.size();
     for (int s=0;s<ns;s++) {
+      final Strip st = strips.get(s);
+      final double p = timing ? st.getPushedAt() : 0;
+      if (p != 0) pushed = p;
       final float angle = 2*pi*time/rotate_time + 2*pi/ns*s;
-      drawStrip(s,strips.get(s),angle);
+      drawStrip(s,st,angle);
     }
+  }
+
+  if (timing && pushed != 0) {
+    final double end = System.nanoTime();
+    println("end-start = "+(end-start)+", end - pushed = "+(end-pushed));
+    //println("  start "+start+", end "+end+", pushed "+pushed);
   }
 }
 
