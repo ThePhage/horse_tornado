@@ -18,8 +18,10 @@ DeviceRegistry registry;
 TestObserver observer;
 
 // Parameters and state
+final boolean change_images = false; // If true, cycle through all images in the data directory
+final boolean refresh_screen = false; // If true, redraw screen image each frame
 final float rotate_time = 1./8; // seconds
-final float strip_angle = 2*pi/200; // horizontal box filter width of each strip
+final float strip_angle = 2*pi/200; // Horizontal box filter width of each strip
 final float image_time = 60; // seconds
 float time = 0;
 
@@ -60,6 +62,7 @@ void load_next() {
   back_paths.add(path);
 }
 
+// Called once on startup
 void setup() {
   registry = new DeviceRegistry();
   observer = new TestObserver();
@@ -110,7 +113,7 @@ void drawStrip(final int s, final Strip strip, final float angle) {
   if (false && s == 0)
     println("fraction = "+xlo/back.width);
 
-  // Draw each LED
+  // Draw each LED each a box filter
   for (int y=0;y<ny;y++) {
     float r = 0, g = 0, b = 0;
     for (int x=(int)xlo;x<=(int)xhi;x++) {
@@ -125,13 +128,14 @@ void drawStrip(final int s, final Strip strip, final float angle) {
 }
 
 void draw() {
-  // Advance time
+  // Advance time.
   time += 1./frameRate;
-  if (false && time > back_end_time)
+  if (change_images && time > back_end_time)
     load_next();
 
   // Draw on laptop screen
-  //image(back,0,0,width,height);
+  if (refresh_screen)
+    image(back,0,0,width,height);
 
   // Draw on LEDs
   if (observer.hasStrips) {
