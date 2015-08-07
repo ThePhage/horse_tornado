@@ -24,6 +24,8 @@ final float image_time = 60; // seconds
 float time = 0;
 
 // Background image.  Assumed horizontally periodic, and extended for sentinel purposes.
+// Sentinel purposes means that each image is copied twice horizontally so that box filters
+// don't need to know about wrap around.
 final Queue<String> back_paths = new ArrayDeque(); // All available background images
 PImage back; // Might be a movie
 
