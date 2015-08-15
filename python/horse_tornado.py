@@ -1,6 +1,6 @@
+import os
 import socket
 import time
-import sys
 from PIL import Image
 
 # packet header size
@@ -78,23 +78,38 @@ class ImageBuf( object ):
             self.bufferIndex = 0
         return buffer
 
+# load pixel pushers using IP addresses in the given file
+def loadPixelPushers( ipFileName ):
+    pixelPushers = []
+    addresses = [addr.strip() for addr in open( ipFileName ).readlines()]
+    for address in addresses:
+        if address:
+            pixelPushers.append( PixelPusher( 0, address ) )
+    return pixelPushers
+
+# load images from the given path
+def loadImages( path ):
+    images = []
+    fileNames = os.listdir( path )
+    for fileName in fileNames:
+        if fileName.endswith( '.png' ) or fileName.endswith( '.jpg' ):
+            images.append( ImageBuf( path + '/' + fileName ) )
+    return images
+
 def main():
 
-    # load strips
-    strips = []
-    strips.append( PixelPusher( 0, '192.168.1.190' ) )
-    
-    # load images
-    try:
-        image = ImageBuf( 'test.png' )
-    except IOError:
-        print 'unable to load image'
-        sys.exit( 1 )
+    # create pixel pusher objects and images
+    # no more allocation should occur after this
+    pixelPushers = loadPixelPushers( 'ip.txt' )
+    images = loadImages( '.' )
+    print 'loaded %d pixel pushers' % len( pixelPushers )
+    print 'loaded %d images' % len( images )
     
     # display images forever
     while True:
-        for strip in strips:
-            strip.push( image.nextBuffer() )
+        for (index, pixelPusher) in enumerate( pixelPushers ):
+            image = images[ index % len( images ) ]
+            pixelPusher.push( image.nextBuffer() )
         time.sleep( 0.5 )
 
 if __name__ == '__main__':
