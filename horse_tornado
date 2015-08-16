@@ -1,0 +1,159 @@
+#!/usr/bin/env python
+
+from __future__ import division,print_function
+import os
+import sys
+import socket
+import time
+from numpy import *
+from PIL import Image
+import ConfigParser
+
+def configure(path):
+  # Read configuration
+  conf = ConfigParser.SafeConfigParser()
+  conf.read(path)
+  def get(section,name,default):
+    try:
+      return type(default)(conf.get(section,name,default))
+    except ConfigParser.NoOptionError:
+      return default
+
+  # Global configuration
+  class Options(object):
+    pass
+  opt = Options()
+  opt.port = get('all','port',9897) # Port for pixel value packets
+  opt.size = get('all','size',200) # Default number of LEDs per strip
+  opt.frequency = get('all','frequency',16.) # Image repeats every 1/frequency
+  opt.frame_rate = get('all','frame_rate',1000)
+  opt.mode = get('all','mode','image')
+  opt.animate = get('all','animate',1)
+  opt.correct = get('all','correct',1)
+  opt.scale = get('all','scale',1.)
+
+  # Strip configuration
+  strips = []
+  for name in sorted(conf.sections()):
+    if 'strip' in name:
+      strips.append({
+        'name':   name,
+        'port':   opt.port,
+        'number': get(name,'number',0),
+        'ip':     conf.get(name,'ip'),
+        'size':   get(name,'size',opt.size),
+      })
+  print('strips:')
+  for s in strips:
+    print('  %s : ip %s, number %d, size %d'%(s['name'],s['ip'],s['number'],s['size']))
+
+  # Override number of total strips
+  opt.strips = get('all','strips',len(strips))
+
+  # All done
+  return opt,strips
+
+# Color correction taken from PixelPusher code
+correction = array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,
+  2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,6,6,6,6,6,6,7,7,7,7,7,7,8,8,
+  8,8,8,9,9,9,9,9,10,10,10,10,11,11,11,11,12,12,12,13,13,13,14,14,14,14,15,15,16,16,16,17,17,17,18,18,19,19,20,
+  20,20,21,21,22,22,23,23,24,25,25,26,26,27,27,28,29,29,30,31,31,32,33,34,34,35,36,37,38,38,39,40,41,42,43,44,
+  45,46,47,48,49,50,51,52,54,55,56,57,59,60,61,63,64,65,67,68,70,72,73,75,76,78,80,82,83,85,87,89,91,93,95,97,
+  99,102,104,106,109,111,114,116,119,121,124,127,129,132,135,138,141,144,148,151,154,158,161,165,168,172,176,
+  180,184,188,192,196,201,205,209,214,219,224,229,234,239,244,249,255],dtype=uint8)
+
+def rainbow(w,h):
+  I = zeros((w,h,3),uint8)
+  # Black jump to red to green to blue jump to black
+  for x in xrange(w):
+    for y in xrange(h):
+      t = 2*y/h-x/w
+      if t<0 or t>1:
+        i = 0,0,0
+      elif t<1/2:
+        s = 2*t
+        i = 1-s,s,0
+      else:
+        s = 2*t-1
+        i = 0,1-s,s
+      I[x,y] = 255*asarray(i)
+  return I
+
+def single(w,h):
+  I = zeros((h,h,3),uint8)
+  I[:] = 255,0,0
+  for i in xrange(h):
+    I[i,i] = 255,255,255
+  return I
+
+class POV(object):
+  """Precomputed information to display one image via persistence of vision"""
+
+  # Packet header size
+  header_size = 5
+
+  def __init__(self,opt,size,image):
+    # Resize to match strip height and frame_rate/frequency
+    w,h = int(rint(opt.frame_rate/opt.frequency)),size
+
+    # Convert to numpy
+    if opt.mode == 'image':
+      image = image.convert('RGB').resize((w,h))
+      image = array(image,uint8).reshape(h,w,3)[::-1].swapaxes(0,1)
+    elif opt.mode == 'black':   image = zeros((w,h,3),uint8)
+    elif opt.mode == 'rainbow': image = rainbow(w,h)
+    elif opt.mode == 'single':  image = single(w,h)
+    else: raise RuntimeError('mode must be one of: image, rainbow, black')
+    self.frames = image.shape[0]
+
+    # Optionally apply color correction
+    if opt.correct:
+      image = correction[image]
+    image *= opt.scale
+
+    # Reshape into nearly-ready-to-send packets
+    buf = image.reshape(self.frames,3*h)
+    buf = hstack([zeros((self.frames,self.header_size),dtype=uint8),buf])
+    self.buf = buf
+
+    # Prepare to send UDP packets
+    self.sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+    self.packet = 0
+
+  def send(self,strip,n):
+    buf = self.buf[n%self.frames]
+    buf[:4] = asarray(self.packet,dtype('>u4')).flatten().view(uint8)
+    buf[4] = strip['number']
+    self.packet += 1
+    if 0:
+      print('send: ip %s, port %d, number %d, n %d, len %s'%(strip['ip'],strip['port'],strip['number'],n,len(buf)))
+    self.sock.sendto(buf,(strip['ip'],strip['port']))
+
+def main():
+  # Read command line arguments
+  if len(sys.argv) < 3:
+    print('usage: %s <config> <image>...'%sys.argv[0],file=sys.stderr)
+    print('example: %s config data/red-circle.gif'%sys.argv[0])
+    sys.exit(1)
+  opt,strips = configure(sys.argv[1])
+  images = sys.argv[2:]
+
+  # For now, use only the first image
+  # TODO: Don't assume all strips are the same size
+  pov = POV(opt,strips[0]['size'],Image.open(images[0]))
+
+  # Display images forever
+  dt = 1/opt.frame_rate
+  t0 = time.time()
+  for n in xrange(1<<62 if opt.animate else 1):
+    for i,strip in enumerate(strips):
+      pov.send(strip,n+pov.frames*i//opt.strips)
+    t = time.time()
+    wait = dt*(n+1)-(t-t0)
+    if wait > 0:
+      time.sleep(wait)
+    if n%1000==0 and n:
+      print('n %dk, t %g'%(n//1000,t-t0))
+
+if __name__ == '__main__':
+  main()
