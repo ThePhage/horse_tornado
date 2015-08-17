@@ -23,18 +23,14 @@ number = 1
 ip = 10.0.1.103
 number = 0
 
-#[strip4]
-##ip = 10.0.1.101
-#ip = 10.0.1.104
-#number = 0
-#port = 9000
-#
-#[strip5]
-##ip = 10.0.1.101
-#ip = 10.0.1.104
-#number = 1
-#port = 9000
-#
+[strip4]
+ip = 10.0.1.102
+number = 0
+
+[strip5]
+ip = 10.0.1.102
+number = 1
+
 #[strip6]
 ##ip = 10.0.1.102
 #ip = 10.0.1.103

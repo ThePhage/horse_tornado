@@ -101,6 +101,7 @@ class POV(object):
       image = image.convert('RGB').resize((w,h))
       image = array(image,uint8).reshape(h,w,3)[::-1].swapaxes(0,1)
     elif opt.mode == 'black':   image = zeros((w,h,3),uint8)
+    elif opt.mode == 'white':   image = 255*ones((w,h,3),uint8)
     elif opt.mode == 'rainbow': image = rainbow(w,h)
     elif opt.mode == 'single':  image = single(w,h)
     else: raise RuntimeError('mode must be one of: image, rainbow, black')

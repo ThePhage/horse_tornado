@@ -1,0 +1,3 @@
+[submodule "PixelPusher-utilities"]
+	path = PixelPusher-utilities
+	url = https://github.com/jasstrong/PixelPusher-utilities
