@@ -1,0 +1,61 @@
+#!/usr/bin/env python2.7
+
+from __future__ import division,print_function
+from geode import *
+from geode.value import parser
+import geode
+import pylab
+
+# Properties
+props = PropManager()
+count = props.add('count',1000)
+radius = props.add('radius',3.8)
+phage_size = props.add('phage_size',.4/12)
+rotate = props.add('rotate',120.)
+subdivs = props.add('subdivs',20)
+output = props.add('output','').set_abbrev('o')
+parser.parse(props,'Horse Tornado logo')
+
+@cache
+def phage():
+  beziers = svgfile_to_beziers('art/phage-logo-laser.svg') 
+  return beziers
+
+@cache
+def raw_phage_box():
+  k = subdivs()
+  return bounding_box([x for b in phage() for x in b.evaluate(k)])
+
+@cache
+def spiral():
+  n = arange(count())
+  phi = (sqrt(5)-1)/2
+  X = sqrt(n)[:,None]*polar(2*pi*phi*n)
+  return X
+
+def plot():
+  X = spiral()
+  if 0:
+    pylab.plot(X[:,0],X[:,1],'o')
+  else:
+    box = raw_phage_box()
+    c = box.center()
+    ps = phage_size()/magnitude(box.sizes())
+    k = subdivs()
+    if 0:
+      print('phage box = %s'%raw_phage_box())
+    for x in radius()/max_magnitude(X)*X:
+      A = Rotation.from_angle(pi/180*rotate()+geode.vector.angle(x))
+      for b in phage():
+        y = x+ps*(A*(b.evaluate(k)-c))
+        pylab.plot(y[:,0],y[:,1],'k-')
+  axes = pylab.axes()
+  axes.set_aspect('equal')
+  if output():
+    axes.set_axis_off()
+    pylab.savefig(output(),bbox_inches='tight',pad_inches=0)
+  else:
+    pylab.show()
+
+if __name__=='__main__':
+  plot()
