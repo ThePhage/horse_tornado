@@ -11,10 +11,11 @@ props = PropManager()
 count = props.add('count',300)
 radius = props.add('radius',3.8).set_help('full radius in inches')
 phage_size = props.add('phage_size',4*.4/12).set_help('phage size in inches')
-phage_path = props.add('phage_path','art/kerf-optimized.svg')
+phage_path = props.add('phage_path','art/motif_longer_slot.svg')
 rotate = props.add('rotate',120.)
 subdivs = props.add('subdivs',20)
 output = props.add('output','').set_abbrev('o')
+symmetry = props.add('symmetry',4).set_help('tweak for n-fold rotational symmetry')
 parser.parse(props,'Horse Tornado logo')
 
 @cache
@@ -27,11 +28,31 @@ def raw_phage_box():
   k = subdivs()
   return bounding_box([x for b in phage() for x in b.evaluate(k)])
 
+"""
+The normal sunflower spiral exists on disk subset of the plane, written in polar
+coordinates with 2*pi angle around the center.  For details, see
+
+  Segerman, Henry. "The Sunflower Spiral and the Fibonacci Metric." Bridges 2010.
+  Ridley, J. N. "Packing efficiency in sunflower heads." Mathematical Biosciences 58.1 (1982): 129-139.
+
+However, for water jet purposes we want a 4-fold rotationally symmetric version.  We'll generalize this
+to s-fold symmetry to keep formulas obvious.  Henry had the lovely idea to consider such a version to
+exist on a cone C of angle 2*pi/s.  In the s=1 case, Ridley proves that the sunflower spiral with
+incremental angle 2*pi*p, p = (sqrt(5)-1)/2 achieves the optimum separation between nodes.  Let's work
+through his proof on the cone C and see what falls out.
+
+Unfortunately, working through his proof exactly is more difficult on the cone.  However, it turns out
+the obvious guess seems to work: just replace 2*pi*p with 2*pi/s*p.  That is, the 2*pi is just the period.
+"""
+
 @cache
 def spiral():
-  n = arange(count())
-  phi = (sqrt(5)-1)/2
-  X = sqrt(n)[:,None]*polar(2*pi*phi*n)
+  s = symmetry()
+  assert count()%s == 0
+  n = arange(count()//s)+1
+  p = (sqrt(5)-1)/2
+  X = sqrt(n)[:,None]*polar(2*pi/s*p*n+pi/2*arange(s)[:,None])
+  X = X.reshape(-1,2)
   return X
 
 def plot():
