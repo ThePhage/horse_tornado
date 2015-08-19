@@ -8,9 +8,10 @@ import pylab
 
 # Properties
 props = PropManager()
-count = props.add('count',1000)
-radius = props.add('radius',3.8)
-phage_size = props.add('phage_size',.4/12)
+count = props.add('count',300)
+radius = props.add('radius',3.8).set_help('full radius in inches')
+phage_size = props.add('phage_size',4*.4/12).set_help('phage size in inches')
+phage_path = props.add('phage_path','art/kerf-optimized.svg')
 rotate = props.add('rotate',120.)
 subdivs = props.add('subdivs',20)
 output = props.add('output','').set_abbrev('o')
@@ -18,7 +19,7 @@ parser.parse(props,'Horse Tornado logo')
 
 @cache
 def phage():
-  beziers = svgfile_to_beziers('art/phage-logo-laser.svg') 
+  beziers = svgfile_to_beziers(phage_path())
   return beziers
 
 @cache
