@@ -3,7 +3,7 @@ frequency = 4
 frame_rate = 2000
 strips = 8
 size = 120
-mode = image
+mode = single
 animate = 1
 #scale = .25
 
@@ -31,14 +31,10 @@ number = 0
 ip = 10.0.1.102
 number = 1
 
-#[strip6]
-##ip = 10.0.1.102
-#ip = 10.0.1.103
-#number = 0
-#port = 9000
-#
-#[strip7]
-##ip = 10.0.1.102
-#ip = 10.0.1.103
-#number = 1
-#port = 9000
+[strip6]
+ip = 10.0.1.101
+number = 0
+
+[strip7]
+ip = 10.0.1.101
+number = 1
