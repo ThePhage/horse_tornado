@@ -39,6 +39,20 @@ Otherwise from the configtool directory run (on mac):
 To configure the 1st pixelpusher. The number after usbmodem will change
 from computer to computer.
 
+### Which strip is which?
+
+The above configuration assumes you know which PixelPusher is which in
+terms of their ordering around the circle.  If you do not know this,
+set the following two lines in the `[all]` section of `config`:
+
+    mode = rainbow
+    animate = 0
+
+This will display a color ramp (upwards from red to green to blue) on
+part of each strip.  If the ordering is correct, the ramp will move
+upwards as you rotate left to right around the circle.  If this isn't
+the case, adjust the config file accordingly.
+
 ### PixelPusher and Processing documentation:
 
 Somewhat obsolete, since we're no longer using Processing.
