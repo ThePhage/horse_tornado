@@ -53,6 +53,20 @@ part of each strip.  If the ordering is correct, the ramp will move
 upwards as you rotate left to right around the circle.  If this isn't
 the case, adjust the config file accordingly.
 
+### Aspect ratio
+
+Conceptually, POV wraps an image around an imaginary cylinder, spins it
+to match the spin of the viewer, and treats the LED strips as windows
+onto the cylinder.  The wrapping is aspect-ratio dependent, and the code
+can optionally account for this.  To enable aspect ratio support, put
+the following in the `[all]` section of `config`:
+
+    aspect = 1
+    height = <strip-height>
+    radius = <radius-out-to-the-strips>
+
+Only the ratio height/radius matters, so units are arbitrary.
+
 ### PixelPusher and Processing documentation:
 
 Somewhat obsolete, since we're no longer using Processing.

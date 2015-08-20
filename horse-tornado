@@ -26,11 +26,14 @@ def configure(path):
   opt.port = get('all','port',9897) # Port for pixel value packets
   opt.size = get('all','size',200) # Default number of LEDs per strip
   opt.frequency = get('all','frequency',16.) # Image repeats every 1/frequency
-  opt.frame_rate = get('all','frame_rate',1000)
+  opt.frame_rate = get('all','frame_rate',1000) # Frame rate at which to update each strip
   opt.mode = get('all','mode','image')
   opt.animate = get('all','animate',1)
   opt.correct = get('all','correct',1)
   opt.scale = get('all','scale',1.)
+  opt.aspect = get('all','aspect',0)
+  opt.height = get('all','height',2.5) # Strip height (same units as radius)
+  opt.radius = get('all','radius',2.5) # Radius from center to strips (same units as height)
 
   # Strip configuration
   strips = []
@@ -93,8 +96,20 @@ class POV(object):
   header_size = 5
 
   def __init__(self,opt,size,image):
-    # Resize to match strip height and frame_rate/frequency
-    w,h = int(rint(opt.frame_rate/opt.frequency)),size
+    if opt.aspect: # Adjust wrapping to match aspect ratios
+      width = opt.height/image.size[0]*image.size[1]
+      # Say we pick image width w.  Every 1/frequency we draw one cylinder, for a speed of
+      #   2*pi*radius*frequency
+      # Every w/frame_rate we draw the whole image, for a speed of
+      #   width*frame_rate/w
+      # Equating speeds, we get
+      #   width*frame_rate/w = 2*pi*radius*frequency
+      #   w = width*frame_rate/(2*pi*radius*frequency)
+      w = width*opt.frame_rate/(2*pi*opt.radius*opt.frequency)
+    else: # Wrap image exactly once around the cylinder
+      w = opt.frame_rate/opt.frequency
+    w = int(ceil(w)) # Round up so that w > 0.  Just in case.
+    h = size
 
     # Convert to numpy
     if opt.mode == 'image':
@@ -122,7 +137,7 @@ class POV(object):
     self.packet = 0
 
   def send(self,strip,n):
-    buf = self.buf[n%self.frames]
+    buf = self.buf[n%self.frames] # Python's % treats negative numerators correctly!
     buf[:4] = asarray(self.packet,dtype('>u4')).flatten().view(uint8)
     buf[4] = strip['number']
     self.packet += 1
