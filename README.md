@@ -10,7 +10,8 @@ The current version is pure python+numpy.  If you need numpy, run one of
 
 The `horse_tornado` script is used as follows:
 
-    ./horse_tornado config data/red-circle.gif
+    ./horse_tornado config data                # Cycle through a directory
+    ./horse_tornado config data/red-circle.gif # Use a specific image
 
 where `config` is an ini style configuration file (an example is checked in)
 and the image is displayed via persistence of vision.

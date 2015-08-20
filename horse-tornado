@@ -27,6 +27,7 @@ def configure(path):
   opt.size = get('all','size',200) # Default number of LEDs per strip
   opt.frequency = get('all','frequency',16.) # Image repeats every 1/frequency
   opt.frame_rate = get('all','frame_rate',1000) # Frame rate at which to update each strip
+  opt.reload_time = get('all','reload_time',60.) # How often to change images (in seconds)
   opt.mode = get('all','mode','image')
   opt.animate = get('all','animate',1)
   opt.correct = get('all','correct',1)
@@ -145,23 +146,49 @@ class POV(object):
       print('send: ip %s, port %d, number %d, n %d, len %s'%(strip['ip'],strip['port'],strip['number'],n,len(buf)))
     self.sock.sendto(buf,(strip['ip'],strip['port']))
 
+# The image extensions we recognize (used to sweep directories clean)
+image_exts = frozenset(e for l in ('png','jpg','jpeg','gif','bmp') for e in ('.'+l,'.'+l.upper()))
+
+def image_paths(path):
+  if os.path.isdir(path):
+    paths = []
+    for r,ds,fs in os.walk(path):
+      ds[:] = [d for d in ds if not d.startswith('.')]
+      for f in fs:
+        if os.path.splitext(f)[1] in image_exts:
+          paths.append(os.path.join(r,f))
+    return paths
+  else:
+    return [path]
+
+def die(s):
+  print(s,file=sys.stderr)
+  sys.exit(1)
+
 def main():
   # Read command line arguments
   if len(sys.argv) < 3:
-    print('usage: %s <config> <image>...'%sys.argv[0],file=sys.stderr)
-    print('example: %s config data/red-circle.gif'%sys.argv[0])
-    sys.exit(1)
+    die('usage: %s <config> <image-or-dir>...\nexample: %s config data/red-circle.gif'
+      %(sys.argv[0],sys.argv[0]),file=sys.stderr)
   opt,strips = configure(sys.argv[1])
-  images = sys.argv[2:]
+  paths = sys.argv[2:]
 
-  # For now, use only the first image
-  # TODO: Don't assume all strips are the same size
-  pov = POV(opt,strips[0]['size'],Image.open(images[0]))
+  def reload():
+    images = [i for p in paths for i in image_paths(p)]
+    if not images:
+      die('No images found in paths %s'%(paths,))
+    path = images[random.randint(len(images))]
+    print('Loading image %s'%path)
+    # TODO: Don't assume all strips are the same size
+    return POV(opt,strips[0]['size'],Image.open(images[0]))
 
   # Display images forever
   dt = 1/opt.frame_rate
+  reload_n = int(ceil(opt.reload_time*opt.frame_rate))
   t0 = time.time()
   for n in xrange(1<<62 if opt.animate else 1):
+    if n%reload_n==0:
+      pov = reload()
     for i,strip in enumerate(strips):
       pov.send(strip,n+pov.frames*i//opt.strips)
     t = time.time()
