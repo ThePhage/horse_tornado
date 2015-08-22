@@ -186,7 +186,7 @@ def main():
     path = images[random.randint(len(images))]
     print('Loading image %s'%path)
     # TODO: Don't assume all strips are the same size
-    return POV(opt,strips[0]['size'],Image.open(images[0]))
+    return POV(opt,strips[0]['size'],Image.open(path))
 
   # Display images forever
   dt = 1/opt.frame_rate
