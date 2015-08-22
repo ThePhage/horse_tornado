@@ -3,6 +3,7 @@
 from __future__ import division,print_function
 import os
 import sys
+import fcntl
 import socket
 import time
 from numpy import *
@@ -32,9 +33,14 @@ def configure(path):
   opt.animate = get('all','animate',1)
   opt.correct = get('all','correct',1)
   opt.scale = get('all','scale',1.)
+
   opt.aspect = get('all','aspect',0)
   opt.height = get('all','height',2.5) # Strip height (same units as radius)
   opt.radius = get('all','radius',2.5) # Radius from center to strips (same units as height)
+
+  opt.use_mouse = get('all','use_mouse',0)
+  opt.mouse_dev = get('all','mouse_dev','/dev/input/mouse0') # Mouse device to read angle from
+  opt.mouse_frequency = get('all','mouse_frequency',24.) # Frequency of mouse polling
 
   # Strip configuration
   strips = []
@@ -188,21 +194,45 @@ def main():
     # TODO: Don't assume all strips are the same size
     return POV(opt,strips[0]['size'],Image.open(path))
 
+  # Prepare for mouse support if desired
+  if opt.use_mouse:
+    mouse_file = open(opt.mouse_dev)
+    mouse_fd = mouse_file.fileno()
+    fcntl.fcntl(mouse_fd,fcntl.F_SETFL,fcntl.fcntl(mouse_fd,fcntl.F_GETFL)|os.O_NONBLOCK)
+    mouse_n = int(ceil(opt.frame_rate/opt.mouse_frequency))
+    mouse_x = 0.
+  else:
+    mouse_n = 1<<60
+
   # Display images forever
   dt = 1/opt.frame_rate
   reload_n = int(ceil(opt.reload_time*opt.frame_rate))
   t0 = time.time()
   for n in xrange(1<<62 if opt.animate else 1):
+    # Reload image
     if n%reload_n==0:
       pov = reload()
+
+    # Draw on LEDs
+    x = mouse_x if opt.use_mouse else n
     for i,strip in enumerate(strips):
-      pov.send(strip,n+pov.around*i//opt.strips)
+      pov.send(strip,x+pov.around*i//opt.strips)
+
+    # Wait for next frame
     t = time.time()
     wait = dt*(n+1)-(t-t0)
     if wait > 0:
       time.sleep(wait)
     if n%1000==0 and n:
       print('n %dk, t %g'%(n//1000,t-t0))
+
+    # Update mouse
+    if n%mouse_n==0 and opt.use_mouse:
+      ds = os.read(mouse_fd,3<<10)
+      assert len(ds)%3==0
+      for i in xrange(len(ds)//3):
+        dx = ord(ds[3*i+2])
+        mouse_x += dx-((0x80&dx)<<1)
 
 if __name__ == '__main__':
   main()
