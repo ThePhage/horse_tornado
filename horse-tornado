@@ -98,7 +98,7 @@ class POV(object):
 
   def __init__(self,opt,size,image):
     if opt.aspect: # Adjust wrapping to match aspect ratios
-      width = opt.height/image.size[0]*image.size[1]
+      width = opt.height/image.size[1]*image.size[0]
       # Say we pick image width w.  Every 1/frequency we draw one cylinder, for a speed of
       #   2*pi*radius*frequency
       # Every w/frame_rate we draw the whole image, for a speed of
@@ -116,21 +116,28 @@ class POV(object):
     if opt.mode == 'image':
       image = image.convert('RGB').resize((w,h))
       image = array(image,uint8).reshape(h,w,3)[::-1].swapaxes(0,1)
-    elif opt.mode == 'black':   image = zeros((w,h,3),uint8)
-    elif opt.mode == 'white':   image = 255*ones((w,h,3),uint8)
-    elif opt.mode == 'rainbow': image = rainbow(w,h)
-    elif opt.mode == 'single':  image = single(w,h)
-    else: raise RuntimeError('mode must be one of: image, rainbow, black')
-    self.frames = image.shape[0]
+    else:
+      if   opt.mode == 'black':   image = zeros((w,h,3),uint8)
+      elif opt.mode == 'white':   image = 255*ones((w,h,3),uint8)
+      elif opt.mode == 'rainbow': image = rainbow(w,h)
+      elif opt.mode == 'single':  image = single(w,h)
+      else: raise RuntimeError('mode must be one of: image, rainbow, black')
+      w = image.shape[0]
 
     # Optionally apply color correction
     if opt.correct:
       image = correction[image]
     image *= opt.scale
 
+    # Number of pixels around the cylinder
+    if opt.aspect:
+      self.around = int(ceil(opt.frame_rate/opt.frequency))
+    else:
+      self.around = w
+
     # Reshape into nearly-ready-to-send packets
-    buf = image.reshape(self.frames,3*h)
-    buf = hstack([zeros((self.frames,self.header_size),dtype=uint8),buf])
+    buf = image.reshape(w,3*h)
+    buf = hstack([zeros((w,self.header_size),dtype=uint8),buf])
     self.buf = buf
 
     # Prepare to send UDP packets
@@ -138,7 +145,7 @@ class POV(object):
     self.packet = 0
 
   def send(self,strip,n):
-    buf = self.buf[n%self.frames] # Python's % treats negative numerators correctly!
+    buf = self.buf[n%len(self.buf)] # Python's % treats negative numerators correctly!
     buf[:4] = asarray(self.packet,dtype('>u4')).flatten().view(uint8)
     buf[4] = strip['number']
     self.packet += 1
@@ -189,7 +196,7 @@ def main():
     if n%reload_n==0:
       pov = reload()
     for i,strip in enumerate(strips):
-      pov.send(strip,n+pov.frames*i//opt.strips)
+      pov.send(strip,n+pov.around*i//opt.strips)
     t = time.time()
     wait = dt*(n+1)-(t-t0)
     if wait > 0:
