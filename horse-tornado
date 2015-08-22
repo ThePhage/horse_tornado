@@ -168,8 +168,7 @@ def die(s):
 def main():
   # Read command line arguments
   if len(sys.argv) < 3:
-    die('usage: %s <config> <image-or-dir>...\nexample: %s config data/red-circle.gif'
-      %(sys.argv[0],sys.argv[0]),file=sys.stderr)
+    die('usage: %s <config> <image-or-dir>...\nexample: %s config data/red-circle.gif'%(sys.argv[0],sys.argv[0]))
   opt,strips = configure(sys.argv[1])
   paths = sys.argv[2:]
 
