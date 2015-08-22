@@ -4,7 +4,7 @@ frame_rate = 2000
 strips = 8
 size = 120
 mode = image
-animate = 0
+animate = 1
 aspect = 1
 
 [strip0]
