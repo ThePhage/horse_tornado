@@ -269,13 +269,13 @@ Image rainbow(const int w, const int h) {
       const auto t = 2.*y/h-double(x)/w;
       auto& p = i[x][y];
       if (t<0 || t>1)
-        p = Pixel({0,0,0});
+        p = Pixel({{0,0,0}});
       else if (t<1./2) {
         const auto s = 2*t;
-        p = Pixel({uint8_t(255*(1-s)),uint8_t(255*s),0});
+        p = Pixel({{uint8_t(255*(1-s)),uint8_t(255*s),0}});
       } else {
         const auto s = 2*t-1;
-        p = Pixel({0,uint8_t(255*(1-s)),uint8_t(255*s)});
+        p = Pixel({{0,uint8_t(255*(1-s)),uint8_t(255*s)}});
       }
     }
   return i;
@@ -286,7 +286,7 @@ Image solid(const int w, const int h, const uint8_t r, const uint8_t g, const ui
   Image i(extents[w][w]);
   for (const int x : range(w))
     for (const int y : range(h))
-      i[x][y] = Pixel({r,g,b});
+      i[x][y] = Pixel({{r,g,b}});
   return i;
 }
 
@@ -294,7 +294,7 @@ Image solid(const int w, const int h, const uint8_t r, const uint8_t g, const ui
 Image single(const int w) {
   auto i = solid(w,w,255,0,0);
   for (const int x : range(w))
-    i[x][x] = Pixel({255,255,255});
+    i[x][x] = Pixel({{255,255,255}});
   return i;
 }
 
