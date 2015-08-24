@@ -1,10 +1,5 @@
 // Fast version of horse-tornado
 
-// Warning: This code uses boost because it had all the libraries
-// and we are under severe time pressue.  This is problem, because
-// boost's image library in particular is a horrendous pile of
-// template hell with terrifyingly bad documentation.
-
 #include <array>
 #include <atomic>
 #include <cassert>
