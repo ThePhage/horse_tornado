@@ -5,6 +5,7 @@
 // boost's image library in particular is a horrendous pile of
 // template hell with terrifyingly bad documentation.
 
+#include <atomic>
 #include <cassert>
 #include <iostream>
 #include <unordered_set>
@@ -39,8 +40,11 @@ using std::max;
 using std::cout;
 using std::cerr;
 using std::endl;
+using std::atomic;
 using std::string;
 using std::vector;
+using std::function;
+using std::unique_ptr;
 using std::unordered_set;
 
 using namespace boost::algorithm;
@@ -50,7 +54,6 @@ using boost::extents;
 using boost::irange;
 using boost::mt19937;
 using boost::multi_array;
-using boost::noncopyable;
 using boost::scoped_array;
 using boost::uniform_real;
 
@@ -94,6 +97,28 @@ void good_sleep(const double t) {
   ts.tv_sec = n/b;
   ts.tv_nsec = n%b;
   nanosleep(&ts,0);
+}
+
+struct Spinlock {
+  void lock()   { while (f.test_and_set(std::memory_order_acquire)) {} }
+  void unlock() { f.clear(std::memory_order_release); }
+private:
+  std::atomic_flag f = ATOMIC_FLAG_INIT;
+};
+
+// Run a function in a separate thread
+void async(const function<void()>& f) {
+  const auto p = new function<void()>(f);
+  pthread_t thread;
+  const int r = pthread_create(&thread,0,[](void* arg) {
+    const auto p = (function<void()>*)arg;
+    (*p)();
+    delete p;
+    return (void*)0;
+  },p);
+  if (r)
+    die(string("Thread creation failed: ")+strerror(r));
+  pthread_detach(thread);
 }
 
 template<class... Args> string join(const string& sep, const Args&... args) {
@@ -299,7 +324,7 @@ Image single(const int w) {
 }
 
 // Precomputed information to display one image via persistence of vision
-struct POV : public noncopyable {
+struct POV {
   // Packet header size
   static const int header_size = 5;
 
@@ -438,8 +463,12 @@ int main(const int argc, const char** argv) {
   // Initialize randomness
   boost::random::mt19937 random;
 
+  // Locked POV object
+  Spinlock spin;
+  unique_ptr<POV> pov;
+
   // Load a random image
-  const auto load = [&]() {
+  const function<void()> reload = [&]() {
     // Image file extensions
     static const unordered_set<string> image_exts({".png",".jpg",".jpeg",".gif",".bmp"});
 
@@ -472,7 +501,9 @@ int main(const int argc, const char** argv) {
 
     // Prepare POV
     // TOD: Don't assume all strips are the same size
-    return std::shared_ptr<POV>(new POV(o,o.strips[0].size,image));
+    spin.lock();
+    pov.reset(new POV(o,o.strips[0].size,image));
+    spin.unlock();
   };
 
   // Prepare for mouse support if desired
@@ -487,19 +518,22 @@ int main(const int argc, const char** argv) {
   }
 
   // Display images forever
-  std::shared_ptr<POV> pov;
   const double dt = 1./o.frame_rate;
   const int64_t reload_n = int64_t(ceil(o.reload_time*o.frame_rate));
   const double t0 = get_time();
   for (int64_t n=0;;n++) {
     // Reload image
     if (n%reload_n==0)
-      pov = load();
+      async(reload);
 
     // Draw on LEDs
-    const auto x = o.use_mouse ? pov->around*mouse_x : n;
-    for (const int i : range(o.strips.size()))
-      pov->send(o.strips[i],int64_t(ceil(x+pov->around*i/o.total_strips)));
+    spin.lock();
+    if (pov) {
+      const auto x = o.use_mouse ? pov->around*mouse_x : n;
+      for (const int i : range(o.strips.size()))
+        pov->send(o.strips[i],int64_t(ceil(x+pov->around*i/o.total_strips)));
+    }
+    spin.unlock();
 
     // Update mouse
     if (o.use_mouse && n%mouse_n==0) {
