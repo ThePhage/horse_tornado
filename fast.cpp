@@ -5,10 +5,12 @@
 // boost's image library in particular is a horrendous pile of
 // template hell with terrifyingly bad documentation.
 
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <iostream>
 #include <unordered_set>
+#include <random>
 
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -21,41 +23,11 @@
 
 #include <png.h>
 
-#include <boost/algorithm/string/case_conv.hpp>
-#include <boost/algorithm/string/join.hpp>
-#include <boost/algorithm/string/predicate.hpp>
-#include <boost/array.hpp>
 #include <boost/filesystem.hpp>
-#include <boost/format.hpp>
-#include <boost/multi_array.hpp>
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/ini_parser.hpp>
-#include <boost/random/mersenne_twister.hpp>
-#include <boost/random/uniform_real.hpp>
-#include <boost/range/irange.hpp>
-#include <boost/scoped_array.hpp>
 
-using std::min;
-using std::max;
-using std::cout;
-using std::cerr;
-using std::endl;
-using std::atomic;
-using std::string;
-using std::vector;
-using std::function;
-using std::unique_ptr;
-using std::unordered_set;
-
-using namespace boost::algorithm;
-using boost::array;
-using boost::format;
-using boost::extents;
-using boost::irange;
-using boost::mt19937;
-using boost::multi_array;
-using boost::scoped_array;
-using boost::uniform_real;
+using namespace std;
 
 namespace {
 
@@ -66,9 +38,19 @@ template<class T> inline T& const_cast_(const T& x) {
   return const_cast<T&>(x);
 }
 
-template<class I> auto range(const I n)
-  -> decltype(irange(I(),n)) {
-  return irange(I(),n);
+template<class I> struct Range {
+  I lo,hi;
+  struct Iter {
+    I i;
+    bool operator!=(Iter j) const { return i != j.i; }
+    void operator++() { ++i; }
+    I operator*() const { return i; }
+  };
+  Iter begin() const { return Iter({lo}); }
+  Iter end()   const { return Iter({hi}); }
+};
+template<class I> Range<I> range(const I n) {
+  return Range<I>({0,n});
 }
 
 template<class I> I positive_mod(I n, const I d) {
@@ -121,12 +103,27 @@ void async(const function<void()>& f) {
   pthread_detach(thread);
 }
 
-template<class... Args> string join(const string& sep, const Args&... args) {
-  const vector<string> xs = {string(args)...};
-  return boost::join(xs,sep);
+string join(const string& sep, const vector<string>& args) {
+  string result;
+  for (size_t i=0;i<args.size();i++) {
+    if (i) result += sep;
+    result += args[i];
+  }
+  return result;
 }
 
-template<class... Args> string command_output(const string& path, const Args&... args) {
+__attribute__((noreturn)) void exec(const vector<string>& cmd) {
+  if (cmd.empty())
+    die("Empty command");
+  vector<const char*> ps;
+  for (const auto& s : cmd)
+    ps.push_back(s.c_str());
+  ps.push_back(0);
+  execvp(ps[0],(char**)&ps[0]);
+  die("Command failed: "+join(" ",cmd)+", "+strerror(errno));
+}
+
+string command_output(const vector<string>& cmd) {
   int fd[2];
   if (pipe(fd) < 0)
     die("Pipe failed");
@@ -153,28 +150,31 @@ template<class... Args> string command_output(const string& path, const Args&...
   } else { // Child
     if (dup2(fd[1],1) < 0)
       die("dup2 failed");
-    execlp(path.c_str(),string(args).c_str()...,NULL);
-    die("Command failed ("+path+"): "+join(" ",string(args)...)+", "+strerror(errno));
+    exec(cmd);
   }
 }
 
-template<class... Args> void run(const string& path, const Args&... args) {
-  if (0)
-    cout<<"command = "<<join(" ",string(args)...)<<endl;
+void run(const vector<string>& cmd) {
   const pid_t pid = fork();
   if (pid) { // Parent
     int status;
     waitpid(pid,&status,0);
     if (!WIFEXITED(status) || WEXITSTATUS(status))
       exit(1);
-  } else { // Child
-    if (execlp(path.c_str(),string(args).c_str()...,NULL) < 0)
-      die("Command failed ("+path+"): "+join(" ",string(args)...)+", "+strerror(errno));
-  }
+  } else // Child
+    exec(cmd);
 }
 
 typedef array<uint8_t,3> Pixel;
-typedef multi_array<Pixel,2> Image;
+struct Image {
+  int w,h;
+  shared_ptr<Pixel> a;
+
+  Image(const int w, const int h)
+    : w(w), h(h), a(new Pixel[w*h],std::default_delete<Pixel[]>()) {}
+
+  Pixel& operator()(const int x, const int y) { return a.get()[x*h+y]; }
+};
 
 Image read_png(const string& path) {
   FILE* file = fopen(path.c_str(),"rb");
@@ -191,11 +191,11 @@ Image read_png(const string& path) {
                        |PNG_TRANSFORM_PACKING|PNG_TRANSFORM_EXPAND,0);
   const int w = png_get_image_width(png,info),
             h = png_get_image_height(png,info);
-  Image image(extents[w][h]);
+  Image image(w,h);
   Pixel** rows = (Pixel**)png_get_rows(png,info);
   for (const int x : range(w))
     for (const int y : range(h))
-      image[x][y] = rows[h-y-1][x];
+      image(x,y) = rows[h-y-1][x];
   png_destroy_read_struct(&png,&info,0);
   fclose(file);
   return image;
@@ -247,7 +247,7 @@ struct Options {
     , total_strips() {
     auto& strips = const_cast_(this->strips);
     for (const auto& p : props)
-      if (boost::algorithm::contains(p.first,"strip")) {
+      if (p.first.find("strip") != string::npos) {
         // Parse strip details
         Strip s;
         s.name = p.second.get("name",p.first);
@@ -288,11 +288,11 @@ const uint8_t correction[257] = {
 
 // Black jump to red to green to blue jump to black
 Image rainbow(const int w, const int h) {
-  Image i(extents[w][h]);
+  Image i(w,h);
   for (const int x : range(w))
     for (const int y : range(h)) {
       const auto t = 2.*y/h-double(x)/w;
-      auto& p = i[x][y];
+      auto& p = i(x,y);
       if (t<0 || t>1)
         p = Pixel({{0,0,0}});
       else if (t<1./2) {
@@ -308,10 +308,10 @@ Image rainbow(const int w, const int h) {
 
 // Solid color image
 Image solid(const int w, const int h, const uint8_t r, const uint8_t g, const uint8_t b) {
-  Image i(extents[w][w]);
+  Image i(w,w);
   for (const int x : range(w))
     for (const int y : range(h))
-      i[x][y] = Pixel({{r,g,b}});
+      i(x,y) = Pixel({{r,g,b}});
   return i;
 }
 
@@ -319,7 +319,7 @@ Image solid(const int w, const int h, const uint8_t r, const uint8_t g, const ui
 Image single(const int w) {
   auto i = solid(w,w,255,0,0);
   for (const int x : range(w))
-    i[x][x] = Pixel({{255,255,255}});
+    i(x,x) = Pixel({{255,255,255}});
   return i;
 }
 
@@ -333,7 +333,7 @@ struct POV {
 
   // Packet buffers
   const int width, height, packet_size;
-  scoped_array<uint8_t> buffer;
+  unique_ptr<uint8_t[]> buffer;
 
   // UDP socket
   const int sock;
@@ -346,7 +346,7 @@ struct POV {
 
     // Use identify to compute aspect ratio
     const double aspect = !o.aspect ? 1 : [&]() {
-      const auto dims = command_output("identify","identify","-format","%w %h",path);
+      const auto dims = command_output({"identify","-format","%w %h",path});
       int w,h;
       if (sscanf(dims.c_str(),"%d %d",&w,&h) < 0)
         die("Can't parse dimensions: "+dims);
@@ -365,9 +365,12 @@ struct POV {
         char tmp[] = "/tmp/horse-tornado-fit-XXXXXX.png";
         if (mkstemps(tmp,4) < 0)
           die(string("Could not create temporary file ")+tmp+": "+strerror(errno));
-        run("convert","convert","-resize",str(format("%dx%d!")%w%h),"-depth","8","-background","black",path,tmp);
+        stringstream geo;
+        geo << w<<'x'<<h<<'!';
+        run({"convert","-resize",geo.str(),"-depth","8","-background","black",path,tmp});
         const auto image = read_png(tmp);
-        boost::filesystem::remove(tmp);
+        if (remove(tmp) < 0)
+          die("Failed to remove "+string(tmp)+": "+strerror(errno));
         return image;
       } else {
         if      (o.mode == "black") return solid(w,h,0,0,0);
@@ -377,14 +380,14 @@ struct POV {
         else die("Got mode '"+o.mode+"', expected image, rainbow, black, or white");
       }
     }();
-    w = fit.size();
-    assert(fit.shape()[1]==size_t(h));
+    w = fit.w;
+    assert(fit.h==size_t(h));
 
     // Optionally color correct
     if (o.correct)
       for (const int x : range(w))
         for (const int y : range(h)) {
-          auto& p = fit[x][y];
+          auto& p = fit(x,y);
           for (const auto i : range(3))
             p[i] = correction[p[i]];
         }
@@ -393,7 +396,7 @@ struct POV {
     if (o.scale != 1)
       for (const int x : range(w))
         for (const int y : range(h)) {
-          auto& p = fit[x][y];
+          auto& p = fit(x,y);
           for (const auto i : range(3))
             p[i] = max(0,min(255,int(rint(o.scale*p[i]))));
         }
@@ -408,7 +411,7 @@ struct POV {
     buffer.reset(new uint8_t[width*packet_size]);
     for (const int x : range(w))
       for (const int y : range(h)) {
-        const auto p = fit[x][y];
+        const auto p = fit(x,y);
         for (const int i : range(3))
           buffer[x*packet_size+header_size+3*y+i] = p[i];
       }
@@ -442,7 +445,7 @@ template<class T> struct Choice {
     : random(random) {}
 
   void add(const T& x) {
-    static const uniform_real<> uniform(0,1);
+    uniform_real_distribution<double> uniform(0,1);
     if (uniform(random) <= 1./++count)
       value = x;
   }
@@ -461,7 +464,7 @@ int main(const int argc, const char** argv) {
     die("Need at least one strip");
 
   // Initialize randomness
-  boost::random::mt19937 random;
+  Random random;
 
   // Locked POV object
   Spinlock spin;
@@ -486,7 +489,8 @@ int main(const int argc, const char** argv) {
             dir.no_push();
           else {
             string ext = extension(file);
-            to_lower(ext);
+            for (char& c : ext)
+              c = tolower(c);
             if (image_exts.count(ext))
               choice.add(path.string());
           }
