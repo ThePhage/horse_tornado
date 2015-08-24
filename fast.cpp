@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -22,6 +23,7 @@
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/join.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/array.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/format.hpp>
 #include <boost/multi_array.hpp>
@@ -32,8 +34,17 @@
 #include <boost/range/irange.hpp>
 #include <boost/scoped_array.hpp>
 
-using namespace std;
+using std::min;
+using std::max;
+using std::cout;
+using std::cerr;
+using std::endl;
+using std::string;
+using std::vector;
+using std::unordered_set;
+
 using namespace boost::algorithm;
+using boost::array;
 using boost::format;
 using boost::extents;
 using boost::irange;
@@ -57,10 +68,10 @@ template<class I> auto range(const I n)
   return irange(I(),n);
 }
 
-template<class I> I positive_mod(const I a, const I b) {
-  assert(b > 0);
-  I r = a % b;
-  return a >= 0 ? a : a + b;
+template<class I> I positive_mod(I n, const I d) {
+  assert(d > 0);
+  n %= d;
+  return n >= 0 ? n : n + d;
 }
 
 __attribute__((noreturn)) void die(const string s) {
@@ -72,6 +83,17 @@ double get_time() {
   timeval tv;
   gettimeofday(&tv,0);
   return tv.tv_sec+1e-6*tv.tv_usec;
+}
+
+void good_sleep(const double t) {
+  if (t <= 0)
+    return;
+  const uint64_t b = 1000000000;
+  const uint64_t n(b*t);
+  timespec ts;
+  ts.tv_sec = n/b;
+  ts.tv_nsec = n%b;
+  nanosleep(&ts,0);
 }
 
 template<class... Args> string join(const string& sep, const Args&... args) {
@@ -112,6 +134,8 @@ template<class... Args> string command_output(const string& path, const Args&...
 }
 
 template<class... Args> void run(const string& path, const Args&... args) {
+  if (0)
+    cout<<"command = "<<join(" ",string(args)...)<<endl;
   const pid_t pid = fork();
   if (pid) { // Parent
     int status;
@@ -124,7 +148,10 @@ template<class... Args> void run(const string& path, const Args&... args) {
   }
 }
 
-multi_array<uint8_t,3> read_png(const string& path) {
+typedef array<uint8_t,3> Pixel;
+typedef multi_array<Pixel,2> Image;
+
+Image read_png(const string& path) {
   FILE* file = fopen(path.c_str(),"rb");
   if (!file)
     die("Failed to open "+path+" for reading");
@@ -135,15 +162,15 @@ multi_array<uint8_t,3> read_png(const string& path) {
   if (!info || setjmp(png_jmpbuf(png)))
     die("Error reading png file "+path);
   png_init_io(png,file);
-  png_read_png(png,info,PNG_TRANSFORM_STRIP_16|PNG_TRANSFORM_STRIP_ALPHA|PNG_TRANSFORM_PACKING|PNG_TRANSFORM_EXPAND,0);
+  png_read_png(png,info,PNG_TRANSFORM_STRIP_16|PNG_TRANSFORM_STRIP_ALPHA
+                       |PNG_TRANSFORM_PACKING|PNG_TRANSFORM_EXPAND,0);
   const int w = png_get_image_width(png,info),
             h = png_get_image_height(png,info);
-  multi_array<uint8_t,3> image(extents[w][h][3]);
-  uint8_t** rows = (uint8_t**)png_get_rows(png,info);
+  Image image(extents[w][h]);
+  Pixel** rows = (Pixel**)png_get_rows(png,info);
   for (const int x : range(w))
     for (const int y : range(h))
-      for (const int i : range(3)) 
-        image[x][y][i] = rows[h-y-1][3*x+i];
+      image[x][y] = rows[h-y-1][x];
   png_destroy_read_struct(&png,&info,0);
   fclose(file);
   return image;
@@ -235,49 +262,39 @@ const uint8_t correction[257] = {
   234,239,244,249,255};
 
 // Black jump to red to green to blue jump to black
-multi_array<uint8_t,3> rainbow(const int w, const int h) {
-  multi_array<uint8_t,3> i(extents[w][h][3]);
+Image rainbow(const int w, const int h) {
+  Image i(extents[w][h]);
   for (const int x : range(w))
     for (const int y : range(h)) {
       const auto t = 2.*y/h-double(x)/w;
-      auto &r = i[x][y][0],
-           &g = i[x][y][1],
-           &b = i[x][y][2];
+      auto& p = i[x][y];
       if (t<0 || t>1)
-        r = g = b = 0;
-      else if (t<1/2) {
+        p = Pixel({0,0,0});
+      else if (t<1./2) {
         const auto s = 2*t;
-        r = 255*(1-s);
-        g = 255*s;
-        b = 0;
+        p = Pixel({uint8_t(255*(1-s)),uint8_t(255*s),0});
       } else {
         const auto s = 2*t-1;
-        r = 0;
-        g = 255*(1-s);
-        b = 255*s;
+        p = Pixel({0,uint8_t(255*(1-s)),uint8_t(255*s)});
       }
     }
   return i;
 }
 
 // Solid color image
-multi_array<uint8_t,3> solid(const int w, const int h, const uint8_t r, const uint8_t g, const uint8_t b) {
-  multi_array<uint8_t,3> i(extents[w][w][3]);
+Image solid(const int w, const int h, const uint8_t r, const uint8_t g, const uint8_t b) {
+  Image i(extents[w][w]);
   for (const int x : range(w))
-    for (const int y : range(h)) {
-      i[x][y][0] = r;
-      i[x][y][1] = g;
-      i[x][y][2] = b;
-    }
+    for (const int y : range(h))
+      i[x][y] = Pixel({r,g,b});
   return i;
 }
 
 // Red except for one white pixel in each column
-multi_array<uint8_t,3> single(const int w) {
+Image single(const int w) {
   auto i = solid(w,w,255,0,0);
   for (const int x : range(w))
-    for (const int k : range(3))
-      i[x][x][k] = 255;
+    i[x][x] = Pixel({255,255,255});
   return i;
 }
 
@@ -318,12 +335,12 @@ struct POV : public noncopyable {
     const int h = size;
 
     // Resize or rewrite image
-    multi_array<uint8_t,3> fit = [&]() {
+    Image fit = [&]() {
       if (o.mode == "image") {
         char tmp[] = "/tmp/horse-tornado-fit-XXXXXX.png";
         if (mkstemps(tmp,4) < 0)
           die(string("Could not create temporary file ")+tmp+": "+strerror(errno));
-        run("convert","convert","-resize",str(format("%dx%d")%w%h),"-depth","8","-background","black",path,tmp);
+        run("convert","convert","-resize",str(format("%dx%d!")%w%h),"-depth","8","-background","black",path,tmp);
         const auto image = read_png(tmp);
         boost::filesystem::remove(tmp);
         return image;
@@ -336,20 +353,25 @@ struct POV : public noncopyable {
       }
     }();
     w = fit.size();
+    assert(fit.shape()[1]==size_t(h));
 
     // Optionally color correct
     if (o.correct)
       for (const int x : range(w))
-        for (const int y : range(h))
+        for (const int y : range(h)) {
+          auto& p = fit[x][y];
           for (const auto i : range(3))
-            fit[x][y][i] = correction[fit[x][y][i]];
+            p[i] = correction[p[i]];
+        }
 
     // Rescale
     if (o.scale != 1)
       for (const int x : range(w))
-        for (const int y : range(h))
+        for (const int y : range(h)) {
+          auto& p = fit[x][y];
           for (const auto i : range(3))
-            fit[x][y][i] = max(0,min(255,int(rint(o.scale*fit[x][y][i]))));
+            p[i] = max(0,min(255,int(rint(o.scale*p[i]))));
+        }
 
     // Number of pixels around the cylinder
     const_cast_(around) = o.aspect ? int(ceil(o.frame_rate/o.frequency)) : w;
@@ -360,9 +382,11 @@ struct POV : public noncopyable {
     const_cast_(packet_size) = header_size+3*h;
     buffer.reset(new uint8_t[width*packet_size]);
     for (const int x : range(w))
-      for (const int y : range(h))
+      for (const int y : range(h)) {
+        const auto p = fit[x][y];
         for (const int i : range(3))
-          buffer[x*packet_size+header_size+3*y+i] = fit[x][y][i];
+          buffer[x*packet_size+header_size+3*y+i] = p[i];
+      }
 
     // Prepare to send UDP packets
     const_cast_(sock) = socket(AF_INET,SOCK_DGRAM,0);
@@ -394,7 +418,7 @@ template<class T> struct Choice {
 
   void add(const T& x) {
     static const uniform_real<> uniform(0,1);
-    if (uniform(random) < 1/++count)
+    if (uniform(random) <= 1./++count)
       value = x;
   }
 };
@@ -417,7 +441,7 @@ int main(const int argc, const char** argv) {
   // Load a random image
   const auto load = [&]() {
     // Image file extensions
-    static const unordered_set<string> image_exts({".png",".jpg",".jpeg"});
+    static const unordered_set<string> image_exts({".png",".jpg",".jpeg",".gif",".bmp"});
 
     // Pick a random image of the given paths
     Choice<string> choice(random);
@@ -437,6 +461,7 @@ int main(const int argc, const char** argv) {
             if (image_exts.count(ext))
               choice.add(path.string());
           }
+          ++dir;
         }
       }
     }
@@ -463,7 +488,7 @@ int main(const int argc, const char** argv) {
 
   // Display images forever
   std::shared_ptr<POV> pov;
-  const double dt = 1/o.frame_rate;
+  const double dt = 1./o.frame_rate;
   const int64_t reload_n = int64_t(ceil(o.reload_time*o.frame_rate));
   const double t0 = get_time();
   for (int64_t n=0;;n++) {
@@ -483,8 +508,14 @@ int main(const int argc, const char** argv) {
 
     // Wait for next frame
     const auto t = get_time();
-    sleep(dt*(n+1)-(t-t0));
+    good_sleep(dt*(n+1)-(t-t0));
     if (n && n%1000==0)
-      cout<<"n "<<n<<"k, t "<<t-t0<<endl;
+      cout<<"n "<<n/1000<<"k, t "<<t-t0<<endl;
+
+    // Are we done?
+    if (!o.animate)
+      break;
   }
+
+  return 0;
 }
